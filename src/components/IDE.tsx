@@ -20,13 +20,7 @@ const IDE = () => {
   const [hasExecuted, setHasExecuted] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  //AQUIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-  //ESTAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-  //LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-  //FUNCIOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOON
-  //DEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
-  //LAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-  //APIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+  //Función para llamar al backend
   const executeCode = async () => {
     const activeFile = files.find(f => f.active);
     if (!activeFile) return;
@@ -34,32 +28,34 @@ const IDE = () => {
     setIsExecuting(true);
     setSalida("Ejecutando...");
 
-    try {
-      setTimeout(() => {
-        setSalida(`Archivo "${activeFile.name}" ejecutado con éxito.\n\nContenido:\n${activeFile.content}`);
-        setIsError(false);
-        setIsExecuting(false);
-        setHasExecuted(true);
-      }, 1000);
-
-      /*
-      const response = await fetch('http://localhost:8080/api/execute', {
+    try {      
+      const response = await fetch('http://localhost:8080/simplify/getSimplify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           filename: activeFile.name,
-          content: activeFile.content
+          instruction: activeFile.content
         })
       });
 
       const data = await response.json();
-      setSalida(data.output);
-      setIsError(data.error);
+      console.log('Respuesta del servidor:', data);
+
+      if (data.responses != null) {
+        const concatenatedResponses = data.responses.map((response: string) => response).join('\n\n');
+        setSalida(concatenatedResponses);
+        setIsError(false);
+      }
+      if (data.errors != null) {
+        const concatenatedErrors = data.errors.map((error: string) => error).join('\n\n');
+        setSalida(concatenatedErrors);
+        setIsError(true);
+      }
       setIsExecuting(false);
       setHasExecuted(true);
-      */
+      
     } catch (error) {
       console.error('Error al ejecutar el código:', error);
       setSalida(`Error al ejecutar: ${(error as Error).message}`);
@@ -210,7 +206,7 @@ const IDE = () => {
           <StatusBar 
             cursorPosition={cursorPosition}
             indentSize={indentSize}
-            authorName="Alejandro Gutiérrez Barrera // José De Jesús Zarate García // Cristiano Ronaldo Dos Santos Aveiro // Lionel Messi"
+            authorName="Alejandro Gutiérrez Barrera // José De Jesús Zarate García "
           />
         </div>
       </div>
@@ -236,7 +232,7 @@ const WelcomeScreen = ({
 }) => {
   return (
     <div className="flex-1 flex flex-col items-center justify-center bg-gray-800 text-gray-300">
-      <h1 className="text-3xl font-bold mb-6">Bienvenido al Editor Más Mamalón del Mundo</h1>
+      <h1 className="text-3xl font-bold mb-6">Bienvenido al Editor</h1>
       <p className="text-lg mb-8 text-gray-400">Crea un nuevo archivo o carga uno existente</p>
       <div className="flex space-x-4">
         <button 
@@ -280,7 +276,7 @@ const SideBar = ({
   return (
     <div className="w-56 bg-gray-800 text-gray-300 border-r border-gray-700">
       <div className="p-2 font-medium flex justify-between items-center border-b border-gray-700">
-        <span>IDE Mamalon</span>
+        <span>IDE</span>
         <div className="flex">
           <button 
             onClick={addNewFile}
