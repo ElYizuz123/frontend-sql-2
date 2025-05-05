@@ -16,6 +16,7 @@ interface EliminableFunction {
   startLine: number;
   endLine: number;
   decorationId?: string;
+  isOnce: boolean;
 }
 
 // Componente principal del IDE
@@ -60,6 +61,7 @@ const IDE = () => {
           reason: "nunca es llamada",
           startLine: -1, // Se actualizará después analizando el código
           endLine: -1,
+          isOnce: false,
         });
       } else if (calledOnceMatch) {
         functions.push({
@@ -67,6 +69,7 @@ const IDE = () => {
           reason: `fue llamada ${calledOnceMatch[2]} veces`,
           startLine: -1,
           endLine: -1,
+          isOnce: true,
         });
       }
     }
@@ -1090,13 +1093,15 @@ const ResultsPanel = ({
                     (líneas {func.startLine}-{func.endLine})
                   </span>
                 </div>
-                <button
-                  onClick={() => removeFunction(func)}
-                  className="px-2 py-1 bg-red-700 hover:bg-red-600 text-white rounded text-xs cursor-pointer"
-                  title={`Eliminar función ${func.name}`}
-                >
-                  Eliminar
-                </button>
+                {!func.isOnce &&
+                  <button
+                    onClick={() => removeFunction(func)}
+                    className="px-2 py-1 bg-red-700 hover:bg-red-600 text-white rounded text-xs cursor-pointer"
+                    title={`Eliminar función ${func.name}`}
+                  >
+                    Eliminar
+                  </button>
+                }
               </li>
             ))}
           </ul>
