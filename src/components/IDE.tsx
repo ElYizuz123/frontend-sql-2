@@ -157,7 +157,7 @@ const IDE = () => {
         const concatenatedResponses = data.responses
           .map((response: string) => response)
           .join("\n\n");
-          setSalida("Código ejecutado correctamente.");
+        setSalida("Código ejecutado correctamente.");
         setIsError(false);
 
         // Procesar la respuesta para detectar funciones eliminables
@@ -302,6 +302,7 @@ const IDE = () => {
 
   const clearOutput = () => {
     setSalida("No hay salida");
+    setIsError(false);
     setHasExecuted(false);
     setEliminableFunctions([]);
   };
@@ -341,15 +342,16 @@ const IDE = () => {
   const handleDragStart = (e: React.MouseEvent) => {
     e.preventDefault();
     isDraggingRef.current = true;
-    document.addEventListener('mousemove', handleDrag);
-    document.addEventListener('mouseup', handleDragEnd);
+    document.addEventListener("mousemove", handleDrag);
+    document.addEventListener("mouseup", handleDragEnd);
     // Añadir clase para cambiar el cursor durante el drag
-    document.body.classList.add('resizing');
+    document.body.classList.add("resizing");
   };
 
   const handleDrag = useCallback((e: MouseEvent) => {
     if (!isDraggingRef.current) return;
-    const containerWidth = document.querySelector('.flex.flex-1.overflow-hidden')?.clientWidth || 0;
+    const containerWidth =
+      document.querySelector(".flex.flex-1.overflow-hidden")?.clientWidth || 0;
     if (containerWidth > 0) {
       const newEditorWidth = (e.clientX / containerWidth) * 100;
       // Limitar el rango para evitar paneles demasiado pequeños
@@ -361,17 +363,17 @@ const IDE = () => {
 
   const handleDragEnd = useCallback(() => {
     isDraggingRef.current = false;
-    document.removeEventListener('mousemove', handleDrag);
-    document.removeEventListener('mouseup', handleDragEnd);
+    document.removeEventListener("mousemove", handleDrag);
+    document.removeEventListener("mouseup", handleDragEnd);
     // Eliminar la clase del cursor
-    document.body.classList.remove('resizing');
+    document.body.classList.remove("resizing");
   }, [handleDrag]);
 
   // Limpiar los event listeners cuando el componente se desmonta
   useEffect(() => {
     return () => {
-      document.removeEventListener('mousemove', handleDrag);
-      document.removeEventListener('mouseup', handleDragEnd);
+      document.removeEventListener("mousemove", handleDrag);
+      document.removeEventListener("mouseup", handleDragEnd);
     };
   }, [handleDrag, handleDragEnd]);
 
@@ -395,7 +397,7 @@ const IDE = () => {
           <div className="flex flex-1 overflow-hidden">
             {activeFile ? (
               <>
-                <div 
+                <div
                   className="flex-1 overflow-hidden"
                   style={{ width: `${editorWidth}%` }}
                 >
@@ -409,11 +411,11 @@ const IDE = () => {
                   />
                 </div>
                 {/* Divisor redimensionable */}
-                <div 
+                <div
                   className="w-1 bg-gray-700 hover:bg-blue-500 cursor-col-resize flex-shrink-0"
                   onMouseDown={handleDragStart}
                 />
-                <div 
+                <div
                   className="overflow-hidden"
                   style={{ width: `${100 - editorWidth}%` }}
                 >
@@ -1049,27 +1051,26 @@ const ResultsPanel = ({
             <polyline points="16 18 22 12 16 6"></polyline>
             <polyline points="8 6 2 12 8 18"></polyline>
           </svg>
-          <span>Resultados</span>
+          <span>Salida</span>
         </div>
         {hasExecuted && (
-          <button
-            onClick={clearOutput}
-            title="Limpiar salida"
-          >
-            <div
-              className="flex text-sm items-center justify-center bg-gray-600 hover:bg-gray-500 text-white p-1 rounded cursor-pointer"
-            >
+          <button onClick={clearOutput} title="Limpiar salida">
+            <div className="flex text-sm items-center justify-center bg-gray-600 hover:bg-gray-500 text-white p-1 rounded cursor-pointer">
               Clear
             </div>
           </button>
         )}
       </div>
       <div
-        className={`flex-1 p-4 overflow-auto ${
-          isError ? "text-red-400" : "text-green-300"
-        }`}
+        className={`flex-1 p-4 overflow-auto rounded-md border ${
+          isError
+            ? "bg-gray-900 border-gray-700 text-red-300"
+            : "bg-gray-900 border-gray-700 text-gray-300"
+        } shadow-md`}
       >
-        <pre className="whitespace-pre-wrap font-mono text-sm">{salida}</pre>
+        <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed">
+          {salida}
+        </pre>
       </div>
       {eliminableFunctions.length > 0 && (
         <div className="p-4 bg-gray-900 border-t border-gray-700">
