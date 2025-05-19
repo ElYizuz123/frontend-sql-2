@@ -17,14 +17,15 @@ interface EliminableItem {
   endLine: number;
   decorationId?: string;
   isOnce: boolean;
-  type: 'function' | 'variable';
+  isReturned: boolean; // Nueva propiedad
+  type: "function" | "variable";
   value?: string; // Para variables, almacenar el valor asignado
   className?: string; // Para guardar la clase a la que pertenece
   methodName?: string; // Para guardar el método al que pertenece
+  fullName?: string; // Para guardar el nombre completo (incluyendo clase y método)
 }
-
 // Tipo para las pestañas del panel de resultados
-type ResultsTab = 'methods' | 'variables';
+type ResultsTab = "methods" | "variables";
 
 // Componente principal del IDE
 const IDE = () => {
@@ -39,13 +40,16 @@ const IDE = () => {
   const [isExecuting, setIsExecuting] = useState(false);
   const [hasExecuted, setHasExecuted] = useState(false);
   const [eliminableItems, setEliminableItems] = useState<EliminableItem[]>([]);
-  const [activeResultsTab, setActiveResultsTab] = useState<ResultsTab>('methods');
+  const [activeResultsTab, setActiveResultsTab] =
+    useState<ResultsTab>("methods");
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Estado para controlar el ancho de los paneles
   const [editorWidth, setEditorWidth] = useState(50); // Porcentaje inicial
   const isDraggingRef = useRef(false);
 
   // Función para procesar la respuesta del servidor y extraer los elementos eliminables
+  // Función para procesar la respuesta del servidor y extraer los elementos eliminables
+  // Función corregida para procesar la respuesta del servidor y extraer los elementos eliminables
   const processItemResponse = (response: string): EliminableItem[] => {
     const lines = response.split("\n");
     const items: EliminableItem[] = [];
@@ -60,12 +64,11 @@ const IDE = () => {
       const calledOnceMatch = line.match(
         /La función (\S+) se puede eliminar ya que fue llamada (\d+) veces/
       );
-      
-      // Patrón mejorado para variables eliminables
-      // Captura NombreClase.ejemplo.x o estructuras similares
-      const variableMatch = line.match(
-        /La variable ([A-Za-z0-9_]+)\.([A-Za-z0-9_]+)\.([A-Za-z0-9_]+) es (reducible|eliminable) ya que tiene asignada directamente un valor constante/
-      );
+
+      // Patrón general para variables eliminables o reducibles
+      const variablePattern =
+        /La variable ([A-Za-z0-9_.]+) es (reducible|eliminable) ya que tiene asignada directamente un valor constante/;
+      const variableMatch = line.match(variablePattern);
 
       if (neverCalledMatch) {
         items.push({
@@ -74,7 +77,9 @@ const IDE = () => {
           startLine: -1,
           endLine: -1,
           isOnce: false,
-          type: 'function',
+          isReturned: false, // Nueva propiedad
+          type: "function",
+          fullName: neverCalledMatch[1],
         });
       } else if (calledOnceMatch) {
         items.push({
@@ -83,24 +88,51 @@ const IDE = () => {
           startLine: -1,
           endLine: -1,
           isOnce: true,
-          type: 'function',
+          isReturned: false, // Nueva propiedad
+          type: "function",
+          fullName: calledOnceMatch[1],
         });
       } else if (variableMatch) {
-        // Extraer las partes del nombre de la variable
-        const className = variableMatch[1];
-        const methodName = variableMatch[2];
-        const varName = variableMatch[3];
-        
-        items.push({
-          name: varName,
-          reason: "tiene asignada directamente un valor constante",
-          startLine: -1,
-          endLine: -1,
-          isOnce: false,
-          type: 'variable',
-          className: className,
-          methodName: methodName
-        });
+        // Extraer el nombre completo de la variable
+        const fullVariableName = variableMatch[1];
+        const parts = fullVariableName.split(".");
+
+        // Contar la cantidad de puntos para determinar el tipo
+        if (parts.length === 3) {
+          // Tres componentes: clase.método.variable -> Es una VARIABLE
+          const className = parts[0];
+          const methodName = parts[1];
+          const varName = parts[2];
+
+          items.push({
+            name: varName,
+            reason: "tiene asignada directamente un valor constante",
+            startLine: -1,
+            endLine: -1,
+            isOnce: false,
+            isReturned: false, // Nueva propiedad
+            type: "variable", // Es variable al tener 3 componentes
+            className: className,
+            methodName: methodName,
+            fullName: fullVariableName,
+          });
+        } else if (parts.length === 2) {
+          // Dos componentes: clase.método -> Es un MÉTODO
+          const className = parts[0];
+          const methodName = parts[1];
+
+          items.push({
+            name: methodName,
+            reason: "retorna una constante",
+            startLine: -1,
+            endLine: -1,
+            isOnce: false,
+            isReturned: true, // Nueva propiedad - TRUE para métodos que retornan constante
+            type: "function", // Es función al tener 2 componentes
+            className: className,
+            fullName: fullVariableName,
+          });
+        }
       }
     }
 
@@ -117,8 +149,8 @@ const IDE = () => {
 
     for (let i = 0; i < updatedItems.length; i++) {
       const item = updatedItems[i];
-      
-      if (item.type === 'variable' && item.className && item.methodName) {
+
+      if (item.type === "variable" && item.className && item.methodName) {
         // Primero buscar la clase
         let inClass = false;
         let inMethod = false;
@@ -126,27 +158,29 @@ const IDE = () => {
         let methodFound = false;
         let openBraces = 0;
         let methodStartLine = -1;
-        
+
         // Patrones para encontrar la declaración de la clase y método
         const classPattern = new RegExp(`class\\s+${item.className}\\b`);
-        const methodPattern = new RegExp(`\\b(public|private|protected|)\\s*(static\\s+)?(\\w+\\s+)?${item.methodName}\\s*\\(`);
-        
+        const methodPattern = new RegExp(
+          `\\b(public|private|protected|)\\s*(static\\s+)?(\\w+\\s+)?${item.methodName}\\s*\\(`
+        );
+
         // Recorrer todas las líneas para encontrar la clase y el método correcto
         for (let lineNum = 0; lineNum < lines.length; lineNum++) {
           const currentLine = lines[lineNum];
-          
+
           // Buscar la clase
           if (!classFound && classPattern.test(currentLine)) {
             classFound = true;
             inClass = true;
             continue;
           }
-          
+
           // Contar llaves para saber cuando estamos dentro/fuera de la clase
           if (classFound) {
             const openCurly = (currentLine.match(/{/g) || []).length;
             const closeCurly = (currentLine.match(/}/g) || []).length;
-            
+
             if (inClass) {
               // Si estamos en la clase, buscamos el método específico
               if (!methodFound && methodPattern.test(currentLine)) {
@@ -154,26 +188,30 @@ const IDE = () => {
                 inMethod = true;
                 methodStartLine = lineNum;
                 openBraces = openCurly - closeCurly; // Inicializar contador de llaves para el método
-                
+
                 // Si el método se declara y abre en la misma línea
                 if (currentLine.includes("{")) {
                   openBraces = 1;
                 }
                 continue;
               }
-              
+
               // Si ya encontramos el método, buscamos la variable dentro del método
               if (inMethod) {
                 openBraces += openCurly;
                 openBraces -= closeCurly;
-                
+
                 // Patrones para buscar la variable dentro del método
-                const varDeclarationPattern = new RegExp(`\\b(int|double|float|long|String|boolean|char|var|final)\\s+${item.name}\\s*=\\s*([^;]+);`);
-                const assignmentPattern = new RegExp(`\\b${item.name}\\s*=\\s*([^;]+);`);
-                
+                const varDeclarationPattern = new RegExp(
+                  `\\b(int|double|float|long|String|boolean|char|var|final)\\s+${item.name}\\s*=\\s*([^;]+);`
+                );
+                const assignmentPattern = new RegExp(
+                  `\\b${item.name}\\s*=\\s*([^;]+);`
+                );
+
                 const varMatch = varDeclarationPattern.exec(currentLine);
                 const assignMatch = assignmentPattern.exec(currentLine);
-                
+
                 if (varMatch) {
                   updatedItems[i].startLine = lineNum + 1;
                   updatedItems[i].endLine = lineNum + 1;
@@ -185,7 +223,7 @@ const IDE = () => {
                   updatedItems[i].value = assignMatch[1].trim();
                   break;
                 }
-                
+
                 // Si llegamos al final del método sin encontrar la variable, salir
                 if (openBraces === 0) {
                   inMethod = false;
@@ -195,44 +233,84 @@ const IDE = () => {
             }
           }
         }
-      } else if (item.type === 'function') {
-        // Lógica para funciones
-        const funcNameParts = item.name.split(".");
-        const className = funcNameParts[0];
-        const methodName = funcNameParts[1];
+      } else if (item.type === "function") {
+        // Manejo de Métodos
+        let className = "";
+        let methodName = "";
 
-        // Expresión regular para encontrar la definición de la función
-        const methodPattern = new RegExp(
-          `(public|private|protected)\\s+\\w+\\s+${methodName}\\s*\\(`
-        );
+        if (item.fullName) {
+          const parts = item.fullName.split(".");
+          if (parts.length === 2) {
+            className = parts[0];
+            methodName = parts[1];
+          } else {
+            methodName = item.name;
+          }
+        } else {
+          methodName = item.name;
+        }
 
-        // Buscar la línea donde comienza la función
-        for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-          if (methodPattern.test(lines[lineNum])) {
-            updatedItems[i].startLine = lineNum + 1;
+        // Expresión regular para encontrar la definición de la función/método
+        let methodPattern;
+        if (className) {
+          // Si pertenece a una clase, búsqueda más específica
+          methodPattern = new RegExp(
+            `(public|private|protected)\\s+\\w+\\s+${methodName}\\s*\\(`
+          );
+        } else {
+          // Búsqueda más general para funciones no asociadas a clases
+          methodPattern = new RegExp(`\\b\\w+\\s+${methodName}\\s*\\(`);
+        }
 
-            // Buscar dónde termina la función
-            let openBraces = 0;
-            let closeBraces = 0;
-            let foundOpeningBrace = false;
+        // Buscar la clase primero si es necesario
+        let classFound = false;
+        let searchStartLine = 0;
 
-            for (let j = lineNum; j < lines.length; j++) {
-              if (!foundOpeningBrace && lines[j].includes("{")) {
-                foundOpeningBrace = true;
-              }
+        if (className) {
+          const classPattern = new RegExp(`class\\s+${className}\\b`);
+          for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+            if (classPattern.test(lines[lineNum])) {
+              classFound = true;
+              searchStartLine = lineNum;
+              break;
+            }
+          }
+        }
 
-              if (foundOpeningBrace) {
-                openBraces += (lines[j].match(/{/g) || []).length;
-                closeBraces += (lines[j].match(/}/g) || []).length;
+        // Si no hay clase o la clase fue encontrada, buscar el método
+        if (!className || classFound) {
+          // Buscar la línea donde comienza la función
+          for (
+            let lineNum = searchStartLine;
+            lineNum < lines.length;
+            lineNum++
+          ) {
+            if (methodPattern.test(lines[lineNum])) {
+              updatedItems[i].startLine = lineNum + 1;
 
-                if (openBraces === closeBraces && openBraces > 0) {
-                  updatedItems[i].endLine = j + 1;
-                  break;
+              // Buscar dónde termina la función
+              let openBraces = 0;
+              let closeBraces = 0;
+              let foundOpeningBrace = false;
+
+              for (let j = lineNum; j < lines.length; j++) {
+                if (!foundOpeningBrace && lines[j].includes("{")) {
+                  foundOpeningBrace = true;
+                }
+
+                if (foundOpeningBrace) {
+                  openBraces += (lines[j].match(/{/g) || []).length;
+                  closeBraces += (lines[j].match(/}/g) || []).length;
+
+                  if (openBraces === closeBraces && openBraces > 0) {
+                    updatedItems[i].endLine = j + 1;
+                    break;
+                  }
                 }
               }
-            }
 
-            break;
+              break;
+            }
           }
         }
       }
@@ -278,10 +356,7 @@ const IDE = () => {
         // Procesar la respuesta para detectar elementos eliminables
         const items = processItemResponse(concatenatedResponses);
         // Encontrar la ubicación de estos elementos en el código
-        const itemsWithLocations = findItemLocations(
-          activeFile.content,
-          items
-        );
+        const itemsWithLocations = findItemLocations(activeFile.content, items);
         setEliminableItems(itemsWithLocations);
       }
       if (data.errors != null) {
@@ -454,11 +529,13 @@ const IDE = () => {
 
   // Función mejorada para sustituir variables
   const substituteVariable = (item: EliminableItem) => {
-    console.log('Sustituyendo variable:', item);
-    
+    console.log("Sustituyendo variable:", item);
+
     const activeFile = files.find((f) => f.active);
-    if (!activeFile || item.type !== 'variable' || !item.value) {
-      console.log('Error: archivo no encontrado, no es variable o no tiene valor');
+    if (!activeFile || item.type !== "variable" || !item.value) {
+      console.log(
+        "Error: archivo no encontrado, no es variable o no tiene valor"
+      );
       return;
     }
 
@@ -466,15 +543,15 @@ const IDE = () => {
       // Obtener el contenido actual
       let content = activeFile.content;
       const lines = content.split("\n");
-      
+
       // Primero, eliminar la declaración de la variable
       if (item.startLine > 0 && item.startLine <= lines.length) {
         const lineToRemove = lines[item.startLine - 1];
-        
+
         // Verificar si hay otras cosas en la misma línea después de la declaración
-        const semicolonPos = lineToRemove.indexOf(';');
+        const semicolonPos = lineToRemove.indexOf(";");
         const remainingText = lineToRemove.substring(semicolonPos + 1).trim();
-        
+
         if (remainingText) {
           // Si hay más código después, solo eliminar la declaración
           lines[item.startLine - 1] = remainingText;
@@ -482,7 +559,7 @@ const IDE = () => {
           // Si no hay nada más, eliminar la línea completa
           lines.splice(item.startLine - 1, 1);
         }
-        
+
         content = lines.join("\n");
       }
 
@@ -493,80 +570,90 @@ const IDE = () => {
         let braceCount = 0;
         const updatedLines = content.split("\n");
         const result: string[] = [];
-        
+
         // Regular expressions para identificar la clase y método
         const classRegex = new RegExp(`class\\s+${item.className}\\b`);
         const methodRegex = new RegExp(`\\b${item.methodName}\\s*\\(`);
-        
+
         // Regex para encontrar la variable en el contexto correcto
-        const varRegex = new RegExp(`\\b${item.name}\\b(?!\\s*=)`, 'g');
-        
+        const varRegex = new RegExp(`\\b${item.name}\\b(?!\\s*=)`, "g");
+
         for (let i = 0; i < updatedLines.length; i++) {
           let line = updatedLines[i];
-          
+
           // Detectar si estamos en la clase correcta
           if (!inClass && classRegex.test(line)) {
             inClass = true;
           }
-          
+
           // Detectar si estamos en el método correcto
           if (inClass && !inMethod && methodRegex.test(line)) {
             inMethod = true;
             braceCount = 0; // Reiniciar contador de llaves para este método
-            
+
             // Contar llaves en la línea del método
             braceCount += (line.match(/{/g) || []).length;
             braceCount -= (line.match(/}/g) || []).length;
           }
-          
+
           // Si estamos en el método, contar llaves y hacer reemplazos
           else if (inMethod) {
             braceCount += (line.match(/{/g) || []).length;
             braceCount -= (line.match(/}/g) || []).length;
-            
+
             // Reemplazar la variable por su valor constante
             if (braceCount >= 0) {
               line = line.replace(varRegex, item.value);
             }
-            
+
             // Salir del método cuando el contador de llaves llegue a 0
             if (braceCount === 0) {
               inMethod = false;
             }
           }
-          
+
           result.push(line);
         }
-        
+
         content = result.join("\n");
       } else {
         // Si no tenemos información de clase/método, reemplazar globalmente
         // (Menos seguro, pero por si acaso)
-        const regex = new RegExp(`\\b${item.name}\\b(?!\\s*=)`, 'g');
+        const regex = new RegExp(`\\b${item.name}\\b(?!\\s*=)`, "g");
         content = content.replace(regex, item.value);
       }
-      
+
       // Actualizar el archivo con el contenido modificado
       updateFileContent(activeFile.id, content);
 
       // Eliminar de la lista de elementos
-      setEliminableItems(prev => prev.filter(i => 
-        !(i.name === item.name && i.className === item.className && i.methodName === item.methodName)
-      ));
+      setEliminableItems((prev) =>
+        prev.filter(
+          (i) =>
+            !(
+              i.name === item.name &&
+              i.className === item.className &&
+              i.methodName === item.methodName
+            )
+        )
+      );
 
       // Actualizar mensaje de salida
-      setSalida(prev => {
+      setSalida((prev) => {
         const newMessage = `Variable ${item.name} sustituida por su valor "${item.value}" en ${item.className}.${item.methodName}`;
-        return prev === "No hay salida" ? newMessage : `${newMessage}\n\n${prev}`;
+        return prev === "No hay salida"
+          ? newMessage
+          : `${newMessage}\n\n${prev}`;
       });
-      
-      console.log('Variable sustituida exitosamente');
-      
+
+      console.log("Variable sustituida exitosamente");
     } catch (error) {
-      console.error('Error durante la sustitución:', error);
-      setSalida(prev => {
+      console.error("Error durante la sustitución:", error);
+      setSalida((prev) => {
         const errorMessage = `Error al sustituir variable ${item.name}: ${error}`;
-        return prev === "No hay salida" ? errorMessage : `${errorMessage}\n\n${prev}`;
+        return prev === "No hay salida"
+          ? errorMessage
+          : `${errorMessage}\n\n${prev}`;
       });
     }
   };
@@ -881,7 +968,6 @@ const SideBar = ({
   );
 };
 
-
 // Componente para el editor Monaco
 interface MonacoEditorProps {
   initialContent: string;
@@ -972,22 +1058,34 @@ const MonacoEditor = ({
         provideHover: function (model, position) {
           // Revisar si la línea actual contiene una función eliminable
           for (const item of eliminableItems) {
-            if (item.type === 'function' &&
+            if (
+              item.type === "function" &&
               position.lineNumber >= item.startLine &&
               position.lineNumber <= item.endLine
             ) {
+              // Determinar si es eliminable o reducible basado en la razón
+              const isEliminable = item.reason.toLowerCase().includes('nunca') || 
+                                  item.reason.toLowerCase().includes('no es llamad') ||
+                                  item.reason.toLowerCase().includes('sin uso');
+              
+              const actionType = isEliminable ? 'eliminar' : 'reducir';
+              const severity = isEliminable ? 'eliminable' : 'reducible';
+              
               return {
                 contents: [
-                  { value: `**Función eliminable**` },
+                  { value: `**Función ${severity}**` },
                   {
-                    value: `La función ${item.name} se puede eliminar ya que ${item.reason}.`,
+                    value: `La función ${item.name} se puede ${actionType} ya que ${item.reason}.`,
                   },
                 ],
               };
             }
-            
+
             // Revisar si la línea actual contiene una variable eliminable
-            if (item.type === 'variable' && position.lineNumber === item.startLine) {
+            if (
+              item.type === "variable" &&
+              position.lineNumber === item.startLine
+            ) {
               return {
                 contents: [
                   { value: `**Variable eliminable**` },
@@ -1021,6 +1119,20 @@ const MonacoEditor = ({
     }
   }, [initialContent]);
 
+  // Función para determinar si una función es eliminable o reducible
+  const categorizeFunction = (item: EliminableItem) => {
+    if (item.type !== "function") return null;
+    
+    // Palabras clave que indican que se puede eliminar completamente
+    const eliminableKeywords = ['nunca', 'no es llamad', 'sin uso', 'no utilizada', 'no se invoca', 'eliminar'];
+    const isEliminable = eliminableKeywords.some(keyword => 
+      item.reason.toLowerCase().includes(keyword)
+    );
+    
+    // Priorizar eliminable sobre reducible - si puede eliminarse, siempre será rojo
+    return isEliminable ? 'eliminable' : 'reducible';
+  };
+
   // Manejar las decoraciones para elementos eliminables
   useEffect(() => {
     if (!monacoEditorRef.current) return;
@@ -1035,43 +1147,55 @@ const MonacoEditor = ({
     if (eliminableItems.length === 0) return;
 
     // Separar funciones y variables
-    const eliminableFunctions = eliminableItems.filter(item => item.type === 'function');
-    const eliminableVariables = eliminableItems.filter(item => item.type === 'variable');
+    const eliminableFunctions = eliminableItems.filter(
+      (item) => item.type === "function"
+    );
+    const eliminableVariables = eliminableItems.filter(
+      (item) => item.type === "variable"
+    );
 
     // Mostrar solo las decoraciones según la pestaña activa
     let filteredItems = eliminableItems;
-    if (activeResultsTab === 'methods') {
+    if (activeResultsTab === "methods") {
       filteredItems = eliminableFunctions;
-    } else if (activeResultsTab === 'variables') {
+    } else if (activeResultsTab === "variables") {
       filteredItems = eliminableVariables;
     }
 
-    // Crear decoraciones para funciones
+    // Crear decoraciones para funciones (diferenciando entre eliminables y reducibles)
     const functionDecorations = filteredItems
-      .filter((item) => item.type === 'function' && item.startLine > 0 && item.endLine > 0)
-      .map((func) => ({
-        range: new monaco.Range(func.startLine, 1, func.endLine, 1),
-        options: {
-          isWholeLine: true,
-          className: "eliminable-function",
-          glyphMarginClassName: "eliminable-function-glyph",
-          overviewRuler: {
-            color: "#ff6b6b",
-            position: monaco.editor.OverviewRulerLane.Left,
+      .filter(
+        (item) =>
+          item.type === "function" && item.startLine > 0 && item.endLine > 0
+      )
+      .map((func) => {
+        const category = categorizeFunction(func);
+        const isEliminable = category === 'eliminable';
+        
+        return {
+          range: new monaco.Range(func.startLine, 1, func.endLine, 1),
+          options: {
+            isWholeLine: true,
+            className: isEliminable ? "eliminable-function" : "reducible-function",
+            glyphMarginClassName: isEliminable ? "eliminable-function-glyph" : "reducible-function-glyph",
+            overviewRuler: {
+              color: "#ff4444", // Solo rojo para todas las funciones (eliminables y reducibles)
+              position: monaco.editor.OverviewRulerLane.Left,
+            },
+            minimap: {
+              color: "#ff4444", // Solo rojo para todas las funciones (eliminables y reducibles)
+              position: monaco.editor.MinimapPosition.Inline,
+            },
+            inlineClassName: isEliminable ? "eliminable-function-inline" : "reducible-function-inline",
+            linesDecorationsClassName: isEliminable ? "eliminable-function-line-decoration" : "reducible-function-line-decoration",
+            marginClassName: isEliminable ? "eliminable-function-margin" : "reducible-function-margin",
           },
-          minimap: {
-            color: "#ff6b6b",
-            position: monaco.editor.MinimapPosition.Inline,
-          },
-          inlineClassName: "eliminable-function-inline",
-          linesDecorationsClassName: "eliminable-function-line-decoration",
-          marginClassName: "eliminable-function-margin",
-        },
-      }));
+        };
+      });
 
-    // Crear decoraciones para variables
+    // Crear decoraciones para variables (mantener como estaba)
     const variableDecorations = filteredItems
-      .filter((item) => item.type === 'variable' && item.startLine > 0)
+      .filter((item) => item.type === "variable" && item.startLine > 0)
       .map((variable) => ({
         range: new monaco.Range(variable.startLine, 1, variable.startLine, 1),
         options: {
@@ -1106,19 +1230,25 @@ const MonacoEditor = ({
       const model = monacoEditorRef.current.getModel();
       if (model) {
         const functionMarkers = filteredItems
-          .filter((item) => item.type === 'function' && item.startLine > 0)
-          .map((func) => ({
-            startLineNumber: func.startLine,
-            startColumn: 1,
-            endLineNumber: func.startLine,
-            endColumn: model.getLineContent(func.startLine).length + 1,
-            message: `La función ${func.name} se puede eliminar ya que ${func.reason}.`,
-            severity: monaco.MarkerSeverity.Warning,
-          }));
+          .filter((item) => item.type === "function" && item.startLine > 0)
+          .map((func) => {
+            const category = categorizeFunction(func);
+            const isEliminable = category === 'eliminable';
+            const action = isEliminable ? 'eliminar' : 'reducir';
+            
+            return {
+              startLineNumber: func.startLine,
+              startColumn: 1,
+              endLineNumber: func.startLine,
+              endColumn: model.getLineContent(func.startLine).length + 1,
+              message: `La función ${func.name} se puede ${action} ya que ${func.reason}.`,
+              severity: isEliminable ? monaco.MarkerSeverity.Error : monaco.MarkerSeverity.Warning,
+            };
+          });
 
         // Añadir marcadores para variables
         const variableMarkers = filteredItems
-          .filter((item) => item.type === 'variable' && item.startLine > 0)
+          .filter((item) => item.type === "variable" && item.startLine > 0)
           .map((variable) => ({
             startLineNumber: variable.startLine,
             startColumn: 1,
@@ -1130,12 +1260,8 @@ const MonacoEditor = ({
 
         // Combinar todos los marcadores
         const allMarkers = [...functionMarkers, ...variableMarkers];
-        
-        monaco.editor.setModelMarkers(
-          model,
-          "eliminableItems",
-          allMarkers
-        );
+
+        monaco.editor.setModelMarkers(model, "eliminableItems", allMarkers);
       }
     }
   }, [eliminableItems, activeResultsTab]);
@@ -1143,22 +1269,45 @@ const MonacoEditor = ({
   return (
     <>
       <style>{`
+        /* Estilos para funciones eliminables (rojo más intenso) */
         .eliminable-function-inline {
           text-decoration: line-through;
-          opacity: 0.7;
+          opacity: 0.6;
+          background-color: rgba(255, 68, 68, 0.2);
         }
         .eliminable-function {
-          background-color: rgba(255, 107, 107, 0.1);
+          background-color: rgba(255, 68, 68, 0.15);
+          border-left: 3px solid #ff4444;
         }
         .eliminable-function-line-decoration {
-          background-color: rgba(255, 107, 107, 0.7);
-          width: 5px !important;
+          background-color: #ff4444;
+          width: 6px !important;
           margin-left: 3px;
         }
         .eliminable-function-margin {
-          background-color: rgba(255, 107, 107, 0.2);
+          background-color: rgba(255, 68, 68, 0.3);
         }
         
+        /* Estilos para funciones reducibles (naranja) */
+        .reducible-function-inline {
+          text-decoration: underline wavy #ff8800;
+          opacity: 0.8;
+          background-color: rgba(255, 136, 0, 0.1);
+        }
+        .reducible-function {
+          background-color: rgba(255, 136, 0, 0.1);
+          border-left: 3px solid #ff8800;
+        }
+        .reducible-function-line-decoration {
+          background-color: #ff8800;
+          width: 5px !important;
+          margin-left: 3px;
+        }
+        .reducible-function-margin {
+          background-color: rgba(255, 136, 0, 0.2);
+        }
+        
+        /* Estilos para variables eliminables (mantener como estaba) */
         .eliminable-variable-inline {
           text-decoration: underline wavy orange;
           opacity: 0.8;
@@ -1306,8 +1455,12 @@ const ResultsPanel = ({
   setActiveTab,
 }: ResultsPanelProps) => {
   // Separar elementos por tipo
-  const eliminableFunctions = eliminableItems.filter(item => item.type === 'function');
-  const eliminableVariables = eliminableItems.filter(item => item.type === 'variable');
+  const eliminableFunctions = eliminableItems.filter(
+    (item) => item.type === "function"
+  );
+  const eliminableVariables = eliminableItems.filter(
+    (item) => item.type === "variable"
+  );
 
   return (
     <div className="flex flex-col h-full bg-gray-800 border-l border-gray-700 overflow-hidden">
@@ -1338,7 +1491,7 @@ const ResultsPanel = ({
           </button>
         )}
       </div>
-      
+
       {/* Sección de salida/errores */}
       <div className="flex-shrink-0">
         <div className="p-2 bg-gray-700 text-gray-300 border-b border-gray-600">
@@ -1360,21 +1513,21 @@ const ResultsPanel = ({
       {/* Pestañas para elementos eliminables */}
       <div className="flex border-b border-gray-700">
         <button
-          onClick={() => setActiveTab('methods')}
+          onClick={() => setActiveTab("methods")}
           className={`flex-1 py-2 text-sm ${
-            activeTab === 'methods'
-              ? 'bg-gray-700 text-white border-b-2 border-blue-500'
-              : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            activeTab === "methods"
+              ? "bg-gray-700 text-white border-b-2 border-blue-500"
+              : "bg-gray-800 text-gray-400 hover:bg-gray-700"
           }`}
         >
           Métodos ({eliminableFunctions.length})
         </button>
         <button
-          onClick={() => setActiveTab('variables')}
+          onClick={() => setActiveTab("variables")}
           className={`flex-1 py-2 text-sm ${
-            activeTab === 'variables'
-              ? 'bg-gray-700 text-white border-b-2 border-blue-500'
-              : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+            activeTab === "variables"
+              ? "bg-gray-700 text-white border-b-2 border-blue-500"
+              : "bg-gray-800 text-gray-400 hover:bg-gray-700"
           }`}
         >
           Variables ({eliminableVariables.length})
@@ -1385,7 +1538,9 @@ const ResultsPanel = ({
       <div className="flex-1 overflow-hidden flex flex-col">
         <div className="p-2 bg-gray-700 text-gray-300 border-b border-gray-600">
           <h3 className="text-sm font-medium">
-            {activeTab === 'methods' ? 'Métodos Eliminables' : 'Variables Eliminables'}
+            {activeTab === "methods"
+              ? "Métodos Eliminables"
+              : "Variables Eliminables"}
           </h3>
         </div>
         <div className="flex-1 overflow-auto p-3 bg-gray-900">
@@ -1393,18 +1548,18 @@ const ResultsPanel = ({
             <p className="text-gray-500 text-sm italic">
               No se detectaron elementos eliminables
             </p>
-          ) : activeTab === 'variables' && eliminableVariables.length === 0 ? (
+          ) : activeTab === "variables" && eliminableVariables.length === 0 ? (
             <p className="text-gray-500 text-sm italic">
               No se detectaron variables eliminables
             </p>
-          ) : activeTab === 'methods' && eliminableFunctions.length === 0 ? (
+          ) : activeTab === "methods" && eliminableFunctions.length === 0 ? (
             <p className="text-gray-500 text-sm italic">
               No se detectaron métodos eliminables
             </p>
           ) : (
             <div className="space-y-4">
               {/* Mostrar elementos según la pestaña seleccionada */}
-              {activeTab === 'variables' && (
+              {activeTab === "variables" && (
                 <ul className="space-y-2">
                   {eliminableVariables.map((variable, index) => (
                     <li
@@ -1426,7 +1581,8 @@ const ResultsPanel = ({
                           </p>
                           {variable.value && (
                             <p className="text-blue-300 text-xs">
-                              <span className="text-gray-400">Valor:</span> <code>{variable.value}</code>
+                              <span className="text-gray-400">Valor:</span>{" "}
+                              <code>{variable.value}</code>
                             </p>
                           )}
                           {variable.startLine > 0 && (
@@ -1440,8 +1596,7 @@ const ResultsPanel = ({
                   ))}
                 </ul>
               )}
-
-              {activeTab === 'methods' && (
+              {activeTab === "methods" && (
                 <ul className="space-y-2">
                   {eliminableFunctions.map((func, index) => (
                     <li
@@ -1462,6 +1617,11 @@ const ResultsPanel = ({
                                 Llamada 1 vez
                               </span>
                             )}
+                            {func.isReturned && (
+                              <span className="text-xs bg-blue-900 text-white px-1 py-0.5 rounded">
+                                Retorna constante
+                              </span>
+                            )}
                           </div>
                           <p className="text-gray-300 text-xs mb-1">
                             {func.reason}
@@ -1473,7 +1633,8 @@ const ResultsPanel = ({
                           )}
                         </div>
                         <div className="flex gap-1 ml-2">
-                          {!func.isOnce && (
+                          {/* Solo mostrar botón eliminar si NO es isOnce y NO es isReturned */}
+                          {!func.isOnce && !func.isReturned && (
                             <button
                               onClick={() => removeFunction(func)}
                               className="px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-xs cursor-pointer transition-colors"
